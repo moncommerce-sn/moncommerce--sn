@@ -44,7 +44,7 @@ textarea{resize:vertical;min-height:110px}
 <main id="app"></main>
 <nav id="nav" role="tablist"></nav>
 <script>
-var TABS=[["res","Résumé"],["vente","Vente"],["stock","Stock"],["dette","Dettes"]];
+var TABS=[["res","Résumé"],["vente","Vente"],["stock","Stock"],["dette","Dettes"],["hist","Historique"]];
 var S={prods:[],sales:[],debts:{}},tab="res",msg="";
 function load(){try{var r=localStorage.getItem("mc1");if(r)S=JSON.parse(r)}catch(e){}}
 function save(){try{localStorage.setItem("mc1",JSON.stringify(S))}catch(e){}}
@@ -106,6 +106,17 @@ function relance(c){var t="Bonjour "+c+", petit rappel : tu me dois "+f(S.debts[
  window.open("https://wa.me/?text="+encodeURIComponent(t),"_blank")}
 function reset(){if(document.getElementById("rst").dataset.ok=="1"){S={prods:[],sales:[],debts:{}};save();say("Données effacées.")}
  else{var b=document.getElementById("rst");b.dataset.ok="1";b.textContent="Appuie encore pour tout effacer"}}
+var HP="7";
+function dlab(t){return new Date(t).toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}
+function hlab(t){return new Date(t).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}
+function hdata(){var d0=new Date();d0.setHours(0,0,0,0);var lim=HP=="all"?0:d0.getTime()-(+HP-1)*864e5,days={},order=[],ca=0,mg=0,n=0;
+ S.sales.forEach(function(s){if(s.t<lim)return;var k=day(s.t);if(!days[k]){days[k]={t:s.t,ca:0,mg:0,l:[]};order.push(k)}
+  var d=days[k],a=s.pv*s.q,b=(s.pv-s.pa)*s.q;d.ca+=a;d.mg+=b;d.l.push(s);ca+=a;mg+=b;n++});
+ order.sort(function(a,b){return days[b].t-days[a].t});return{days:days,order:order,ca:ca,mg:mg,n:n}}
+function hwa(){var r=hdata(),lab={"1":"aujourd'hui","7":"7 derniers jours","30":"30 derniers jours","all":"depuis le début"}[HP];
+ var t="Mon commerce - Rapport ("+lab+")\nVentes : "+f(r.ca)+"\nBénéfice : "+f(r.mg)+"\nNombre d'articles vendus : "+r.n+"\n";
+ r.order.forEach(function(k){t+="\n"+dlab(r.days[k].t)+" : "+f(r.days[k].ca)+" (bénéfice "+f(r.days[k].mg)+")"});
+ window.open("https://wa.me/?text="+encodeURIComponent(t),"_blank")}
 function draw(){nav();var h=msg?'<div class="msg" role="status">'+esc(msg)+'</div>':"";
  if(tab=="res"){var td=S.sales.filter(function(s){return day(s.t)==today()}),ca=0,mg=0;
   td.forEach(function(s){ca+=s.pv*s.q;mg+=(s.pv-s.pa)*s.q});
@@ -134,6 +145,16 @@ function draw(){nav();var h=msg?'<div class="msg" role="status">'+esc(msg)+'</di
   '<div class="card"><b>Ajouter plusieurs produits d\'un coup</b><p class="lbl">Un produit par ligne : nom, prix d\'achat, prix de vente, quantité, code-barres (facultatif).</p><textarea id="bl" rows="5" placeholder="Sucre 1 kg, 600, 750, 20&#10;Huile 1 L, 1200, 1400, 12&#10;Riz 5 kg, 2500, 2900, 8" aria-label="Liste de produits"></textarea><button onclick="bulkAdd()">Ajouter la liste</button></div>'+
   '<div class="card"><b>Mes produits ('+S.prods.length+')</b><label for="sf">Chercher un produit</label><input id="sf" type="search" oninput="filt()" placeholder="Ex : sucre">'+(S.prods.length?S.prods.map(function(p,i){return '<div class="row" data-n="'+esc((p.n+" "+(p.b||"")).toLowerCase())+'"><div><b>'+esc(p.n)+'</b><span class="lbl">Marge '+f(p.pv-p.pa)+' par unité'+(p.b?" · "+esc(p.b):"")+'</span></div><div class="pay"><span class="'+(p.q<=5?"low":"")+'">'+p.q+'</span><input id="rq'+i+'" type="number" inputmode="numeric" placeholder="+ stock" aria-label="Ajouter au stock"><button class="sm" onclick="restock('+i+')">Ajouter</button><button class="sm alt" onclick="delProd('+i+')" aria-label="Supprimer">X</button></div></div>'}).join(""):'<div class="empty">Aucun produit. Ajoute le premier ci-dessus.</div>')+'</div>'}
  if(tab=="dette"){var ks=Object.keys(S.debts);h+='<div class="card"><b>Clients qui te doivent de l\'argent</b>'+(ks.length?ks.map(function(c){var id=c.replace(/\W/g,"_");return '<div class="row"><div><b>'+esc(c)+'</b><span class="debt">'+f(S.debts[c])+'</span></div><div class="pay"><input id="d_'+id+'" type="number" inputmode="numeric" placeholder="Tout" aria-label="Montant reçu"><button class="sm" onclick="pay(\''+c.replace(/'/g,"\\'")+'\')">Encaisser</button><button class="sm alt" onclick="relance(\''+c.replace(/'/g,"\\'")+'\')">WhatsApp</button></div></div>'}).join(""):'<div class="empty">Personne ne te doit rien. Les ventes à crédit apparaissent ici.</div>')+'</div>'}
+
+ if(tab=="hist"){var r=hdata(),op=[["1","Aujourd'hui"],["7","7 derniers jours"],["30","30 derniers jours"],["all","Tout l'historique"]];
+  h+='<div class="card"><label for="hp">Période</label><select id="hp" onchange="HP=this.value;draw()">'+op.map(function(o){return '<option value="'+o[0]+'"'+(o[0]==HP?" selected":"")+'>'+o[1]+'</option>'}).join("")+'</select></div>'+
+   '<div class="grid"><div class="card"><div class="lbl">Ventes</div><div class="big">'+f(r.ca)+'</div></div><div class="card"><div class="lbl">Bénéfice</div><div class="big ok">'+f(r.mg)+'</div></div></div>'+
+   '<div class="lbl" style="margin:0 2px 10px">'+r.n+' article(s) vendu(s) sur cette période</div>';
+  if(!r.order.length)h+='<div class="card"><div class="empty">Aucune vente sur cette période.</div></div>';
+  r.order.forEach(function(k){var d=r.days[k];
+   h+='<div class="card"><div class="row"><div><b style="text-transform:capitalize">'+dlab(d.t)+'</b><span class="lbl">Bénéfice '+f(d.mg)+'</span></div><b>'+f(d.ca)+'</b></div>'+
+    d.l.slice().reverse().map(function(s){return '<div class="row"><span>'+s.q+" × "+esc(s.n)+'<br><span class="lbl">'+hlab(s.t)+" · "+esc(s.m)+(s.c?" · "+esc(s.c):"")+'</span></span><span>'+f(s.pv*s.q)+'</span></div>'}).join("")+'</div>'});
+  if(r.n)h+='<button class="acc" onclick="hwa()">Envoyer le rapport sur WhatsApp</button>'}
  document.getElementById("app").innerHTML=h}
 load();draw();
 try{if("serviceWorker" in navigator&&location.protocol=="https:")navigator.serviceWorker.register("sw.js")}catch(e){}
