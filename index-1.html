@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mon Commerce</title>
+<meta name="theme-color" content="#14503B">
+<style>
+:root{--bg:#F1F5F2;--card:#fff;--ink:#14261E;--mute:#5F7168;--line:#D8E1DB;--main:#14503B;--acc:#E8A317;--onacc:#1C1400;--bad:#B4462B;--ok:#1E7A4F}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding-bottom:85px}
+header,main{max-width:600px;margin:auto;padding:8px 16px}
+header{padding-top:18px}
+header h1{margin:0;font-size:24px}
+header p{margin:3px 0;color:var(--mute);font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:14px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.big{font-size:20px;font-weight:700;margin-top:4px}
+.stat{text-align:center}
+.lbl{color:var(--mute);font-size:13px}
+h3{margin:0 0 6px;font-size:17px}
+label{display:block;font-size:13px;color:var(--mute);margin:10px 0 4px}
+input,select{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);min-height:48px}
+button{font:inherit;font-weight:600;border:0;border-radius:12px;min-height:50px;padding:0 16px;background:var(--main);color:#fff;width:100%;margin-top:12px}
+button.sm{width:auto;min-height:40px;margin:0;padding:0 11px;font-size:13px}
+button.alt{background:transparent;color:var(--main);border:1px solid var(--main)}
+button.acc{background:var(--acc);color:var(--onacc)}
+button.danger{background:var(--bad)}
+.row{padding:11px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.flex{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.acts{display:flex;gap:6px;margin-top:8px;align-items:center}
+.acts input{width:90px;min-height:40px;padding:6px}
+.low,.debt{color:var(--bad);font-weight:700}
+.ok{color:var(--ok);font-weight:700}
+.badge{display:inline-block;padding:3px 7px;border-radius:8px;background:var(--bg);font-size:12px;color:var(--mute)}
+.empty{color:var(--mute);text-align:center;padding:16px 0}
+.msg{background:var(--acc);color:var(--onacc);padding:10px 12px;border-radius:10px;margin-bottom:12px;font-weight:600}
+.pr{padding:12px;border:1px solid var(--line);border-radius:10px;margin-top:7px;background:var(--card)}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);z-index:20;padding-bottom:env(safe-area-inset-bottom,0)}
+nav button{flex:1;margin:0;border-radius:0;background:transparent;color:var(--mute);min-height:62px;font-size:11px;padding:0 2px}
+nav button[aria-selected="true"]{color:var(--main);box-shadow:inset 0 3px 0 var(--main)}
+.scan{position:fixed;inset:0;background:#000;z-index:100;display:flex;flex-direction:column}
+.scan video{width:100%;flex:1;min-height:0;object-fit:cover}
+.sb{padding:12px;background:#000}
+.sb button{margin-top:8px}
+</style>
+</head>
+<body>
+<header><h1>Mon commerce</h1><p>Stock, ventes, bénéfices, dettes et dépenses</p></header>
+<main id="app"></main>
+<nav id="nav"></nav>
+<script>
+var TABS=[["res","Résumé"],["vente","Vente"],["stock","Stock"],["dette","Dettes"],["dep","Dépenses"],["hist","Historique"]];
+var PAYS=["Espèces","Wave","Orange Money","Autre moyen de paiement"];
+var UNITS=["pièce","kg","litre","carton","sachet","paquet","boîte","sac","bouteille"];
+var DEPS=["Transport","Livraison","Électricité","Emballage","Autres dépenses"];
+var LOW=5; /* seuil d'alerte de stock faible */
+var S={products:[],sales:[],debts:[],expenses:[]},tab="res",msg="",cart=[],sel=null,edit=null,pay="Espèces",credit=false,scanCb=null,stream=null,timer=null;
+
+/* ---------- Données ---------- */
+function load(){
+ try{
+  var d=JSON.parse(localStorage.getItem("mc1")||"null");
+  if(d&&d.products)S=d;
+  else if(d){ /* ancienne version */
+   S.products=(d.prods||[]).map(function(p){return{name:p.n,barcode:p.b,purchasePrice:p.pa,defaultSalePrice:p.pv,stock:p.q}});
+   S.sales=(d.sales||[]).map(function(s){return{date:s.t,product:s.n,quantity:s.q,purchasePrice:s.pa,salePrice:s.pv,payment:s.m}});
+   S.debts=Object.keys(d.debts||{}).map(function(k){return{customer:k,amount:d.debts[k]}});
+  }
+ }catch(e){}
+ ["products","sales","debts","expenses"].forEach(function(k){if(!Array.isArray(S[k]))S[k]=[]});
+ S.products=S.products.map(function(p){return{name:p.name||"",barcode:p.barcode||"",purchasePrice:+p.purchasePrice||0,defaultSalePrice:+p.defaultSalePrice||0,stock:+p.stock||0,category:p.category||"",unit:p.unit||"pièce"}});
+ S.sales=S.sales.map(function(s){return{date:+s.date||Date.now(),product:s.product||"",quantity:+s.quantity||0,purchasePrice:+s.purchasePrice||0,salePrice:+s.salePrice||0,payment:s.payment||"Espèces",customer:s.customer||"",paid:+s.paid||0,remaining:+s.remaining||0}});
+ S.expenses=S.expenses.map(function(e){return{date:+e.date||Date.now(),type:e.type||"Autres dépenses",amount:+e.amount||0,note:e.note||""}});
+ save();
+}
+function save(){try{localStorage.setItem("mc1",JSON.stringify(S))}catch(e){alert("Impossible de sauvegarder les données.")}}
+
+/* ---------- Outils ---------- */
+function $(id){return document.getElementById(id)}
+function val(id){var e=$(id);return e?e.value:""}
+function money(n){return Math.round(Number(n)||0).toLocaleString("fr-FR")+" FCFA"}
+function q(n){return Math.round(n*1000)/1000}
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+function dt(t){return new Date(t).toLocaleString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"})}
+function sameDay(t){var a=new Date(t),b=new Date();return a.toDateString()==b.toDateString()}
+function sameMonth(t){var a=new Date(t),b=new Date();return a.getFullYear()==b.getFullYear()&&a.getMonth()==b.getMonth()}
+function opts(list,cur){return list.map(function(o){return'<option'+(o==cur?' selected':'')+'>'+esc(o)+'</option>'}).join("")}
+function say(m){msg=m;draw();window.scrollTo(0,0)}
+function go(t){tab=t;msg="";draw()}
+function sum(a,f){return a.reduce(function(t,x){return t+f(x)},0)}
+function ca(a){return sum(a,function(s){return s.salePrice*s.quantity})}
+function mg(a){return sum(a,function(s){return(s.salePrice-s.purchasePrice)*s.quantity})}
+
+/* ---------- Affichage ---------- */
+function draw(){
+ $("nav").innerHTML=TABS.map(function(t){return'<button role="tab" aria-selected="'+(t[0]==tab)+'" onclick="go(\''+t[0]+'\')">'+t[1]+'</button>'}).join("");
+ $("app").innerHTML=(msg?'<div class="msg">'+esc(msg)+'</div>':"")+VIEWS[tab]();
+ if(tab=="vente")pv();
+ if(tab=="stock")stockList();
+}
+var VIEWS={res:vRes,vente:vVente,stock:vStock,dette:vDette,dep:vDep,hist:vHist};
+
+/* ----- Résumé / tableau de bord ----- */
+function vRes(){
+ var ds=S.sales.filter(function(s){return sameDay(s.date)}),ms=S.sales.filter(function(s){return sameMonth(s.date)});
+ var dep=sum(S.expenses.filter(function(e){return sameMonth(e.date)}),function(e){return e.amount});
+ var low=S.products.filter(function(p){return p.stock<=LOW});
+ return'<div class="grid">'+
+ st("Chiffre d'affaires du jour",money(ca(ds)))+st("Chiffre d'affaires du mois",money(ca(ms)))+
+ st("Marge du jour",money(mg(ds)))+st("Marge du mois",money(mg(ms)))+
+ st("Dépenses du mois",money(dep))+st("Bénéfice net du mois",money(mg(ms)-dep))+
+ st("Nombre de ventes (jour)",ds.length)+st("Nombre de ventes (mois)",ms.length)+
+ st("Stock disponible",q(sum(S.products,function(p){return p.stock}))+" articles")+st("Valeur du stock",money(sum(S.products,function(p){return p.stock*p.purchasePrice})))+
+ '</div><div class="card" style="margin-top:12px"><h3>⚠️ Alertes de stock faible</h3>'+
+ (low.length?low.map(function(p){return'<div class="row flex"><span>'+esc(p.name)+'</span><span class="low">'+q(p.stock)+' '+esc(p.unit)+'</span></div>'}).join(""):'<div class="empty">Aucun stock faible.</div>')+'</div>';
+}
+function st(l,v){return'<div class="card stat"><div class="lbl">'+l+'</div><div class="big">'+v+'</div></div>'}
+
+/* ----- Vente ----- */
+function vVente(){
+ var T=sum(cart,function(c){return c.qty*c.price});
+ return'<div class="card"><h3>Chercher un produit</h3>'+
+ '<button class="acc" style="margin-top:0" onclick="scan(findCode)">📷 Scanner le code-barres</button>'+
+ '<label>Ou rechercher par nom (produits sans code-barres)</label><input id="sq0" placeholder="Nom, catégorie ou code..." oninput="search()" autocomplete="off"><div id="sr"></div></div>'+
+ selHTML()+
+ '<div class="card"><h3>Panier</h3>'+(cart.length?cart.map(function(c,k){var p=S.products[c.i];return'<div class="row flex"><div><b>'+esc(p.name)+'</b><div class="lbl">'+q(c.qty)+' × '+money(c.price)+' = '+money(c.qty*c.price)+'<br>Marge : '+money((c.price-p.purchasePrice)*c.qty)+'</div></div><button class="sm danger" onclick="cart.splice('+k+',1);draw()">✕</button></div>'}).join("")+'<div class="row flex"><b>Total</b><span class="big">'+money(T)+'</span></div>':'<div class="empty">Panier vide.</div>')+'</div>'+
+ (cart.length?'<div class="card"><h3>Paiement</h3><label>Moyen de paiement</label><select onchange="pay=this.value">'+opts(PAYS,pay)+'</select>'+
+ '<label>Type de vente</label><select onchange="credit=this.value==\'1\';draw()"><option value="0"'+(credit?'':' selected')+'>Payée en totalité</option><option value="1"'+(credit?' selected':'')+'>À crédit (dette)</option></select>'+
+ (credit?'<label>Nom du client</label><input id="cn" placeholder="Nom du client"><label>Montant payé maintenant (FCFA)</label><input id="cp" type="number" inputmode="numeric" value="0" oninput="rest('+T+')"><div class="lbl" id="cr"></div>':'')+
+ '<button onclick="finish()">Valider la vente</button></div>':'');
+}
+function rest(T){var e=$("cr");if(e)e.textContent="Montant restant : "+money(T-(Number(val("cp"))||0))}
+function selHTML(){
+ if(sel===null||!S.products[sel])return"";var p=S.products[sel];
+ return'<div class="card"><b>'+esc(p.name)+'</b><div class="lbl">Stock : '+q(p.stock)+' '+esc(p.unit)+' · Prix d\'achat : '+money(p.purchasePrice)+'</div>'+
+ '<label>Quantité</label><input id="sqt" type="number" inputmode="decimal" min="0" step="any" value="1" oninput="pv()">'+
+ '<label>Prix de vente pour cette vente (FCFA)</label><input id="spr" type="number" inputmode="numeric" value="'+p.defaultSalePrice+'" oninput="pv()">'+
+ '<div class="lbl" id="mp" style="margin-top:6px"></div><button class="acc" onclick="addCart()">Ajouter au panier</button></div>';
+}
+function pv(){
+ var e=$("mp");if(!e||sel===null)return;var p=S.products[sel];
+ var m=((Number(val("spr"))||0)-p.purchasePrice)*(Number(val("sqt"))||0);
+ e.innerHTML='Marge : <b class="'+(m<0?'low':'ok')+'">'+money(m)+'</b>';
+}
+function search(){
+ var t=val("sq0").trim().toLowerCase(),b=$("sr");if(!t){b.innerHTML="";return}
+ var r=[];S.products.forEach(function(p,i){if(p.name.toLowerCase().indexOf(t)>-1||p.category.toLowerCase().indexOf(t)>-1||p.barcode.indexOf(t)>-1)r.push(i)});
+ b.innerHTML=r.length?r.map(function(i){var p=S.products[i];return'<div class="pr" onclick="pick('+i+')"><b>'+esc(p.name)+'</b><br><span class="lbl">Stock : '+q(p.stock)+' '+esc(p.unit)+' · '+money(p.defaultSalePrice)+(p.barcode?' · '+esc(p.barcode):'')+'</span></div>'}).join(""):'<div class="empty">Aucun produit trouvé.</div>';
+}
+function pick(i){sel=i;msg="";draw();window.scrollTo(0,0)}
+function findCode(c){
+ var i=S.products.findIndex(function(p){return p.barcode&&p.barcode===c});
+ if(i<0){sel=null;return say("Aucun produit avec le code "+c+". Cherche par nom ou ajoute-le dans Stock.")}
+ pick(i);
+}
+function addCart(){
+ var p=S.products[sel],n=Number(val("sqt")),pr=Number(val("spr"));
+ if(!(n>0))return say("Entre une quantité valide.");
+ if(!(pr>=0)||val("spr")==="")return say("Entre le prix de vente.");
+ var inC=sum(cart.filter(function(c){return c.i==sel}),function(c){return c.qty});
+ if(n+inC>p.stock)return say("Stock insuffisant : "+q(p.stock)+" "+p.unit+" disponible.");
+ cart.push({i:sel,qty:n,price:pr});sel=null;draw();
+}
+function finish(){
+ if(!cart.length)return say("Le panier est vide.");
+ var T=sum(cart,function(c){return c.qty*c.price}),name="",paid=T;
+ if(credit){name=val("cn").trim();paid=Number(val("cp"))||0;
+  if(!name)return say("Écris le nom du client.");
+  if(paid<0||paid>T)return say("Le montant payé doit être entre 0 et "+money(T)+".")}
+ var left=T-paid,now=Date.now();
+ cart.forEach(function(c){var p=S.products[c.i],line=c.qty*c.price,pd=T?line*paid/T:0;
+  S.sales.push({date:now,product:p.name,quantity:c.qty,purchasePrice:p.purchasePrice,salePrice:c.price,payment:pay,customer:name,paid:pd,remaining:line-pd});
+  p.stock=q(p.stock-c.qty)});
+ if(left>0){var d=S.debts.find(function(x){return x.customer.toLowerCase()==name.toLowerCase()});
+  if(d)d.amount+=left;else S.debts.push({customer:name,amount:left})}
+ cart=[];credit=false;save();
+ say("Vente enregistrée : "+money(T)+(left>0?" · reste "+money(left):""));
+}
+
+/* ----- Stock ----- */
+function vStock(){
+ var p=edit!==null?S.products[edit]:{name:"",barcode:"",purchasePrice:"",defaultSalePrice:"",stock:"",category:"",unit:"pièce"};
+ var cats=[];S.products.forEach(function(x){if(x.category&&cats.indexOf(x.category)<0)cats.push(x.category)});
+ return'<div class="card"><h3>'+(edit!==null?'Modifier le produit':'Ajouter un produit')+'</h3>'+
+ '<label>Nom du produit</label><input id="pn" value="'+esc(p.name)+'">'+
+ '<label>Code-barres (facultatif)</label><input id="pb" inputmode="numeric" value="'+esc(p.barcode)+'"><button class="alt" onclick="scan(function(c){$(\'pb\').value=c})">📷 Scanner le code-barres</button>'+
+ '<label>Prix d\'achat (FCFA)</label><input id="pa" type="number" inputmode="numeric" value="'+p.purchasePrice+'">'+
+ '<label>Prix de vente habituel (FCFA)</label><input id="pv2" type="number" inputmode="numeric" value="'+p.defaultSalePrice+'">'+
+ '<label>Stock</label><input id="pq" type="number" inputmode="decimal" step="any" value="'+p.stock+'">'+
+ '<label>Catégorie</label><input id="pc" list="cats" value="'+esc(p.category)+'"><datalist id="cats">'+cats.map(function(c){return'<option value="'+esc(c)+'">'}).join("")+'</datalist>'+
+ '<label>Unité</label><select id="pu">'+opts(UNITS,p.unit)+'</select>'+
+ '<button onclick="saveProduct()">'+(edit!==null?'Enregistrer les modifications':'Ajouter le produit')+'</button>'+
+ (edit!==null?'<button class="alt" onclick="edit=null;draw()">Annuler</button>':'')+'</div>'+
+ '<div class="card"><h3>Mes produits ('+S.products.length+')</h3><input id="fs" placeholder="🔍 Rechercher un produit..." oninput="stockList()"><div id="sl"></div></div>';
+}
+function stockList(){
+ var b=$("sl");if(!b)return;var t=val("fs").trim().toLowerCase(),h="";
+ S.products.forEach(function(p,i){
+  if(t&&p.name.toLowerCase().indexOf(t)<0&&p.category.toLowerCase().indexOf(t)<0&&p.barcode.indexOf(t)<0)return;
+  h+='<div class="row"><div class="flex"><b>'+esc(p.name)+'</b><span class="'+(p.stock<=LOW?'low':'ok')+'">'+q(p.stock)+' '+esc(p.unit)+'</span></div>'+
+  '<div class="lbl">Achat '+money(p.purchasePrice)+' · Vente '+money(p.defaultSalePrice)+(p.category?' · <span class="badge">'+esc(p.category)+'</span>':'')+(p.barcode?' · '+esc(p.barcode):'')+(p.stock<=LOW?' · <span class="low">Stock faible</span>':'')+'</div>'+
+  '<div class="acts"><input id="ad'+i+'" type="number" inputmode="decimal" placeholder="+ qté"><button class="sm" onclick="addStock('+i+')">Ajouter</button><button class="sm alt" onclick="editP('+i+')">Modifier</button><button class="sm danger" onclick="delP('+i+')">Suppr.</button></div></div>';
+ });
+ b.innerHTML=h||'<div class="empty">Aucun produit.</div>';
+}
+function saveProduct(){
+ var p={name:val("pn").trim(),barcode:val("pb").trim(),purchasePrice:Number(val("pa"))||0,defaultSalePrice:Number(val("pv2"))||0,stock:Number(val("pq"))||0,category:val("pc").trim(),unit:val("pu")||"pièce"};
+ if(!p.name)return say("Écris le nom du produit.");
+ if(p.purchasePrice<0||p.defaultSalePrice<0||p.stock<0)return say("Les valeurs doivent être positives.");
+ if(p.barcode&&S.products.some(function(x,i){return x.barcode==p.barcode&&i!==edit}))return say("Ce code-barres existe déjà.");
+ var m=edit!==null?"Produit modifié : ":"Produit ajouté : ";
+ if(edit!==null){S.products[edit]=p;edit=null}else S.products.push(p);
+ save();say(m+p.name);
+}
+function editP(i){edit=i;draw();window.scrollTo(0,0)}
+function delP(i){if(!confirm("Supprimer ce produit ?"))return;S.products.splice(i,1);cart=[];sel=null;edit=null;save();say("Produit supprimé.")}
+function addStock(i){var n=Number(val("ad"+i));if(!(n>0))return say("Entre une quantité à ajouter.");S.products[i].stock=q(S.products[i].stock+n);save();say("Stock ajouté : "+S.products[i].name)}
+
+/* ----- Dettes ----- */
+function vDette(){
+ var T=sum(S.debts,function(d){return d.amount});
+ return'<div class="card"><div class="lbl">Total des dettes clients</div><div class="big debt">'+money(T)+'</div></div><div class="card"><h3>Liste des dettes</h3>'+
+ (S.debts.length?S.debts.map(function(d,i){return'<div class="row"><div class="flex"><b>'+esc(d.customer)+'</b><span class="debt">'+money(d.amount)+'</span></div><div class="acts"><input id="dp'+i+'" type="number" inputmode="numeric" placeholder="Montant"><button class="sm" onclick="payDebt('+i+')">Encaisser</button><button class="sm alt" onclick="payAll('+i+')">Tout payé</button></div></div>'}).join(""):'<div class="empty">Aucune dette.</div>')+'</div>';
+}
+function payDebt(i){var n=Number(val("dp"+i)),d=S.debts[i];
+ if(!(n>0))return say("Entre un montant.");if(n>d.amount)return say("Le montant dépasse la dette.");
+ d.amount-=n;if(d.amount<=0)S.debts.splice(i,1);save();say("Paiement enregistré : "+money(n))}
+function payAll(i){var d=S.debts[i];if(!confirm(d.customer+" a tout payé ?"))return;S.debts.splice(i,1);save();say("Dette soldée.")}
+
+/* ----- Dépenses ----- */
+function vDep(){
+ var tm=sum(S.expenses.filter(function(e){return sameMonth(e.date)}),function(e){return e.amount});
+ return'<div class="card"><h3>Ajouter une dépense</h3><label>Type</label><select id="dtp">'+opts(DEPS)+'</select>'+
+ '<label>Montant (FCFA)</label><input id="dam" type="number" inputmode="numeric"><label>Note (facultatif)</label><input id="dno"><button onclick="addDep()">Enregistrer la dépense</button></div>'+
+ '<div class="card"><div class="flex"><h3>Dépenses</h3><b>Ce mois : '+money(tm)+'</b></div>'+
+ (S.expenses.length?S.expenses.map(function(e,i){return{e:e,i:i}}).reverse().map(function(o){return'<div class="row flex"><div><b>'+esc(o.e.type)+'</b> · '+money(o.e.amount)+'<div class="lbl">'+dt(o.e.date)+(o.e.note?' · '+esc(o.e.note):'')+'</div></div><button class="sm danger" onclick="delDep('+o.i+')">✕</button></div>'}).join(""):'<div class="empty">Aucune dépense.</div>')+'</div>';
+}
+function addDep(){var n=Number(val("dam"));if(!(n>0))return say("Entre un montant valide.");
+ S.expenses.push({date:Date.now(),type:val("dtp"),amount:n,note:val("dno").trim()});save();say("Dépense enregistrée : "+money(n))}
+function delDep(i){if(!confirm("Supprimer cette dépense ?"))return;S.expenses.splice(i,1);save();say("Dépense supprimée.")}
+
+/* ----- Historique ----- */
+function vHist(){
+ var L=S.sales.slice().reverse().slice(0,300);
+ return'<div class="card"><h3>Historique des ventes ('+S.sales.length+')</h3>'+(L.length?L.map(function(s){var m=(s.salePrice-s.purchasePrice)*s.quantity;
+  return'<div class="row"><div class="flex"><b>'+esc(s.product)+'</b><b>'+money(s.salePrice*s.quantity)+'</b></div><div class="lbl">Quantité : '+q(s.quantity)+' · Prix vendu : '+money(s.salePrice)+'<br>Marge : <span class="'+(m<0?'low':'ok')+'">'+money(m)+'</span> · '+esc(s.payment)+(s.customer?' · '+esc(s.customer):'')+(s.remaining>0?' · <span class="debt">reste '+money(s.remaining)+'</span>':'')+'<br>'+dt(s.date)+'</div></div>'}).join(""):'<div class="empty">Aucune vente.</div>')+'</div>';
+}
+
+/* ---------- Scanner ---------- */
+function scan(cb){
+ scanCb=cb;var b=document.createElement("div");b.className="scan";b.id="scan";
+ b.innerHTML='<div style="color:#fff;padding:14px;text-align:center"><b>Scanner le code-barres</b><div style="font-size:13px">Place le code devant la caméra</div></div><video id="vid" autoplay playsinline muted></video><div class="sb"><input id="mc" inputmode="numeric" placeholder="Ou tape le code ici"><button class="acc" onclick="manual()">Valider le code</button><button class="danger" onclick="stopScan()">Fermer</button></div>';
+ document.body.appendChild(b);
+ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return;
+ navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}},audio:false}).then(function(s){
+  stream=s;var v=$("vid");if(!v){stopScan();return}v.srcObject=s;v.play();
+  if(!("BarcodeDetector" in window))return; /* sinon : saisie manuelle du code */
+  var d=new BarcodeDetector();
+  timer=setInterval(function(){d.detect(v).then(function(r){if(r.length)done(r[0].rawValue)}).catch(function(){})},400);
+ }).catch(function(){});
+}
+function stopScan(){clearInterval(timer);if(stream)stream.getTracks().forEach(function(t){t.stop()});stream=null;var b=$("scan");if(b)b.remove()}
+function done(c){var f=scanCb;stopScan();if(f)f(c)}
+function manual(){var c=val("mc").trim();if(c)done(c)}
+
+load();draw();
+</script>
+</body>
+</html>
