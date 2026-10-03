@@ -267,5 +267,76 @@ function manual(){var c=val("mc").trim();if(c)done(c)}
 
 load();draw();
 </script>
+ <script>
+/* ===== CORRECTIFS ===== */
+function payLabel(s){return(s.remaining>0.01&&s.paid<=0.01)?"À crédit":s.payment}
+
+/* applique un paiement aux ventes à crédit les plus anciennes du client */
+function applyPay(name,n){
+ var k=name.toLowerCase();
+ for(var i=0;i<S.sales.length&&n>0;i++){var s=S.sales[i];
+  if(s.customer&&s.customer.toLowerCase()==k&&s.remaining>0){
+   var t=Math.min(n,s.remaining);s.remaining-=t;s.paid+=t;n-=t;
+   if(s.remaining<0.01)s.remaining=0}}
+}
+
+/* remet l'historique en accord avec la liste des dettes (une seule fois utile) */
+function reconcile(){
+ var names={};
+ S.sales.forEach(function(s){if(s.customer&&s.remaining>0.01)names[s.customer.toLowerCase()]=s.customer});
+ Object.keys(names).forEach(function(k){
+  var rem=sum(S.sales.filter(function(s){return s.customer&&s.customer.toLowerCase()==k}),function(s){return s.remaining});
+  var d=S.debts.find(function(x){return x.customer.toLowerCase()==k}),amt=d?d.amount:0;
+  if(rem>amt+0.01)applyPay(names[k],rem-amt);
+ });
+}
+var oldLoad=load;
+load=function(){oldLoad();reconcile();save()};
+
+/* dettes : l'historique est mis à jour */
+function payDebt(i){var n=Number(val("dp"+i)),d=S.debts[i];
+ if(!(n>0))return say("Entre un montant.");
+ if(n>d.amount)return say("Le montant dépasse la dette.");
+ applyPay(d.customer,n);d.amount-=n;if(d.amount<=0.01)S.debts.splice(i,1);
+ save();say("Paiement enregistré : "+money(n))}
+function payAll(i){var d=S.debts[i];
+ if(!confirm(d.customer+" a tout payé ?"))return;
+ applyPay(d.customer,Infinity);S.debts.splice(i,1);save();say("Dette soldée.")}
+
+/* vente : alerte si prix à 0 ou sous le prix d'achat */
+function pv(){
+ var e=$("mp");if(!e||sel===null)return;
+ var p=S.products[sel],pr=Number(val("spr"))||0,m=(pr-p.purchasePrice)*(Number(val("sqt"))||0);
+ e.innerHTML='Marge : <b class="'+(m<0?'low':'ok')+'">'+money(m)+'</b>'+(pr<p.purchasePrice?'<br><span class="low">⚠️ '+(pr===0?'Prix à 0 FCFA':'Vente à perte')+'</span>':'');
+}
+function addCart(){
+ var p=S.products[sel],n=Number(val("sqt")),pr=Number(val("spr"));
+ if(!(n>0))return say("Entre une quantité valide.");
+ if(!(pr>=0)||val("spr")==="")return say("Entre le prix de vente.");
+ var inC=sum(cart.filter(function(c){return c.i==sel}),function(c){return c.qty});
+ if(n+inC>p.stock)return say("Stock insuffisant : "+q(p.stock)+" "+p.unit+" disponible.");
+ if(pr<p.purchasePrice&&!confirm((pr===0?"Prix de vente à 0 FCFA.":"Prix de vente ("+money(pr)+") sous le prix d'achat ("+money(p.purchasePrice)+").")+"\nPerte : "+money((p.purchasePrice-pr)*n)+".\nAjouter quand même ?"))return;
+ cart.push({i:sel,qty:n,price:pr});sel=null;draw();
+}
+
+/* produit : alerte si prix de vente à 0 ou sous le prix d'achat */
+var oldSaveProduct=saveProduct;
+saveProduct=function(){
+ var a=Number(val("pa"))||0,v=Number(val("pv2"))||0;
+ if(v<a&&!confirm(v===0?"Le prix de vente est à 0 FCFA. Enregistrer quand même ?":"Le prix de vente ("+money(v)+") est sous le prix d'achat ("+money(a)+"). Enregistrer quand même ?"))return;
+ oldSaveProduct();
+};
+
+/* historique : « À crédit » si rien n'a été payé */
+function vHist(){
+ var L=S.sales.slice().reverse().slice(0,300);
+ return'<div class="card"><h3>Historique des ventes ('+S.sales.length+')</h3>'+(L.length?L.map(function(s){var m=(s.salePrice-s.purchasePrice)*s.quantity;
+  return'<div class="row"><div class="flex"><b>'+esc(s.product)+'</b><b>'+money(s.salePrice*s.quantity)+'</b></div><div class="lbl">Quantité : '+q(s.quantity)+' · Prix vendu : '+money(s.salePrice)+'<br>Marge : <span class="'+(m<0?'low':'ok')+'">'+money(m)+'</span> · '+esc(payLabel(s))+(s.customer?' · '+esc(s.customer):'')+(s.remaining>0?' · <span class="debt">reste '+money(s.remaining)+'</span>':'')+'<br>'+dt(s.date)+'</div></div>'}).join(""):'<div class="empty">Aucune vente.</div>')+'</div>';
+}
+VIEWS.hist=vHist;
+
+load();draw();
+ </script>
 </body>
 </html>
+
